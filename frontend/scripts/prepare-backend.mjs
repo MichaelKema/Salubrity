@@ -1,0 +1,18 @@
+import { spawnSync } from 'node:child_process';
+import { chmodSync, copyFileSync, mkdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+const frontend = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const triple = process.env.TAURI_ENV_TARGET_TRIPLE || `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`;
+const rids = { 'aarch64-apple-darwin': 'osx-arm64', 'x86_64-apple-darwin': 'osx-x64' };
+if (process.platform !== 'darwin' || !rids[triple]) throw new Error('This release script currently supports macOS arm64 and x64 only.');
+const output = resolve(frontend, '../backend/publish', rids[triple]);
+const result = spawnSync('dotnet', ['publish', resolve(frontend, '../backend/backend.csproj'), '-c', 'Release', '-r', rids[triple], '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-p:DebugType=None', '-p:DebugSymbols=false', '-o', output], { stdio: 'inherit' });
+if (result.error) throw result.error;
+if (result.status !== 0) process.exit(result.status || 1);
+const binaries = resolve(frontend, 'src-tauri/binaries');
+mkdirSync(binaries, { recursive: true });
+const dest = resolve(binaries, `salubrity-backend-${triple}`);
+copyFileSync(resolve(output, 'backend'), dest);
+chmodSync(dest, 0o755);
+console.log(`Prepared self-contained backend for ${triple}`);

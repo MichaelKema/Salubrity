@@ -1,0 +1,11 @@
+@backend_HostAddress = http://localhost:5289
+
+GET {{backend_HostAddress}}/api/tracker
+Accept: application/json
+
+###
+
+GET {{backend_HostAddress}}/api/foods/search?query=chickpeas
+Accept: application/json
+
+###

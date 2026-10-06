@@ -1,0 +1,42 @@
+name: Draft Mac release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+  draft:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: salubrity-macos-arm64
+          path: installer
+      - name: Create a draft release for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+          Salubrity is a free, MIT-licensed nutrition diary. This installer is for Apple Silicon Macs and includes its own .NET backend.
+
+          **Maintainer review required:** this workflow creates an ad-hoc signed test build. It is not Apple Developer ID signed or notarized. Keep this release as a draft until a signed/notarized installer has been tested on a clean Mac and replaces these test assets. Do not ask users to disable Gatekeeper.
+
+          See README.md, PRIVACY.md, SECURITY.md and RELEASE.md in the source. No user diary files are included. Verify the accompanying SHA-256 checksum.
+          NOTES
+          if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/is-draft"; then
+            test "$(cat "$RUNNER_TEMP/is-draft")" = true
+            gh release upload "$RELEASE_TAG" installer/* --clobber
+          else
+            gh release create "$RELEASE_TAG" installer/* --verify-tag --draft --title "Salubrity $RELEASE_TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+          fi

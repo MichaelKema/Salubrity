@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#245d48" />
+    <meta name="description" content="Salubrity — a thoughtful place to track food, build meals, and understand your daily nutrition." />
+    <script>
+      // Apply the saved/system theme before the first paint.
+      (() => {
+        let saved;
+        try { saved = localStorage.getItem('salubrity-theme'); } catch {}
+        const theme = saved === 'light' || saved === 'dark' ? saved : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#080a09' : '#245d48';
+      })();
+    </script>
+    <title>Salubrity · Nutrition, in balance</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+</html>

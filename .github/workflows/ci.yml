@@ -1,0 +1,88 @@
+name: Checks and Mac build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    name: Test and build Apple Silicon app
+    runs-on: macos-14
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+      - name: Prepare Rust and security tools
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          brew install gitleaks cargo-audit
+      - name: Scan source and Git history
+        run: |
+          gitleaks git . --log-opts="--all" --redact
+          gitleaks dir . --redact
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Frontend tests and dependency audit
+        working-directory: frontend
+        run: |
+          npm test
+          npm audit --audit-level=high
+      - name: Backend tests and dependency audit
+        run: |
+          dotnet build backend
+          python3 backend/tests/smoke.py
+          dotnet list backend package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
+          python3 -c 'import json, os; from pathlib import Path; data=json.loads((Path(os.environ["RUNNER_TEMP"])/"nuget-audit.json").read_text()); assert not data.get("problems"), "NuGet audit could not complete"; assert not any(f.get("topLevelPackages") or f.get("transitivePackages") for p in data.get("projects", []) for f in p.get("frameworks", [])), "Vulnerable NuGet packages found"'
+      - name: Prepare self-contained backend and test native integration
+        working-directory: frontend
+        run: |
+          npm run prepare:backend
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+          cargo audit --file src-tauri/Cargo.lock
+      - name: Test private desktop backend
+        run: python3 backend/tests/desktop.py
+      - name: Check release tag matches app version
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: frontend
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("package.json")); const c=JSON.parse(fs.readFileSync("src-tauri/tauri.conf.json")); if (process.env.RELEASE_TAG !== "v"+c.version || p.version !== c.version) throw new Error("Tag, package and app versions must match");'
+      - name: Build local test installer
+        working-directory: frontend
+        run: npm run desktop:build
+      - name: Verify app signature and disk image
+        run: |
+          codesign --verify --deep --strict frontend/src-tauri/target/release/bundle/macos/Salubrity.app
+          hdiutil verify frontend/src-tauri/target/release/bundle/dmg/Salubrity_*.dmg
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: salubrity-macos-arm64
+          path: |
+            frontend/src-tauri/target/release/bundle/dmg/*.dmg
+            frontend/src-tauri/target/release/bundle/dmg/*.sha256
+          if-no-files-found: error
+          retention-days: 14
